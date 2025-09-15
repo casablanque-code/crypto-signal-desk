@@ -1,9 +1,7 @@
 services:
   web:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/${GITHUB_REPOSITORY:-casablanque-code/crypto-signal-desk}:latest
     container_name: crypto-signal-desk
     restart: unless-stopped
     ports:
-      - "8000:80"  # откроешь 8080 или повесим на реверс-прокси позже
+      - "8000:80"
