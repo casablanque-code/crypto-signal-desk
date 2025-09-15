@@ -64,30 +64,30 @@ jobs:
         uses: appleboy/ssh-action@v1.2.0
         env:
           GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}         # PAT c read:packages (желательно). Можно не задавать, если пакет публичный
-          GITHUB_TOKEN_FALLBACK: ${{ github.token }}    # запасной вариант, будет доступен только во время job
+          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}          # PAT с read:packages (если образ приватный)
+          GITHUB_TOKEN_FALLBACK: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}             # ubuntu
-          key: ${{ secrets.VPS_SSH_KEY }}
-          envs: GHCR_USER,GHCR_TOKEN,GITHUB_TOKEN_FALLBACK   # <-- ВАЖНО: перечисляем, что прокинуть на сервер
+          username: ${{ secrets.VPS_USER }}              # ubuntu
+          key: ${{ secrets.VPS_SSH_KEY }}                # или key_path: key.pem, если делаешь через base64
+          envs: GHCR_USER,GHCR_TOKEN,GITHUB_TOKEN_FALLBACK
           script_stop: true
           script: |
             set -euo pipefail
             APP_DIR=/root/crypto-signal-desk
 
-          # git/acl
+            # git/acl
             if ! command -v git >/dev/null 2>&1 || ! command -v setfacl >/dev/null 2>&1; then
               sudo apt-get update -y
               sudo apt-get install -y git acl
             fi
 
-          # доступ в /root и каталог проекта
+            # доступ в /root и каталог проекта
             sudo setfacl -m u:$(id -un):--x /root || true
             sudo mkdir -p "$APP_DIR"
             sudo chown -R $(id -un):$(id -gn) "$APP_DIR"
 
-          # если в каталоге ещё нет git-репозитория — аккуратно пересоздадим
+            # если в каталоге нет git-репозитория — пересоздадим
             if ! git -C "$APP_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
               if [ "$(ls -A "$APP_DIR" 2>/dev/null | wc -l)" -gt 0 ]; then
                 ts=$(date +%Y%m%d-%H%M%S)
@@ -103,16 +103,16 @@ jobs:
             git fetch origin main
             git reset --hard origin/main
 
-          # docker (sudo при необходимости)
+            # docker (sudo при необходимости)
             if docker ps >/dev/null 2>&1; then DOCKER="docker"; else DOCKER="sudo docker"; fi
 
-          # логин в GHCR: если приватный пакет — нужен PAT; если публичный, можно пропустить login
+            # логин в GHCR (если образ приватный). Если GHCR_TOKEN пуст — используем GITHUB_TOKEN_FALLBACK
             TOKEN="${GHCR_TOKEN:-$GITHUB_TOKEN_FALLBACK}"
             if [ -n "$TOKEN" ]; then
               $DOCKER login ghcr.io -u "$GHCR_USER" -p "$TOKEN" || true
             fi
 
-          # тянем образ и поднимаем
+            # тянем образ и поднимаем (compose-файл должен быть в репо и ссылаться на ghcr.io/…:latest)
             $DOCKER compose pull || true
             $DOCKER compose up -d
             $DOCKER image prune -f
