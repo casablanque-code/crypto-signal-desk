@@ -71,11 +71,30 @@ jobs:
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
+          port: ${{ secrets.VPS_PORT || 22 }}
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
-            cd /root/crypto-signal-desk
-            docker login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
-            docker compose pull
-            docker compose up -d
-            docker image prune -f
+
+            APP_DIR=/root/crypto-signal-desk
+
+      # дать право прохода в /root и подготовить папку проекта
+            if ! command -v setfacl >/dev/null 2>&1; then
+            sudo apt-get update -y && sudo apt-get install -y acl
+            fi
+            sudo setfacl -m u:$(id -un):--x /root || true
+            sudo mkdir -p "$APP_DIR"
+            sudo chown -R $(id -un):$(id -gn) "$APP_DIR"
+
+      # клонирование/обновление кода
+            if [ ! -d "$APP_DIR/.git" ]; then
+            git clone https://github.com/${{ github.repository }}.git "$APP_DIR"
+            fi
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+
+      # docker с учётом прав
+            if docker ps >/dev/null 2>&1; then DOCKER="docker"; else DOCKER="sudo docker"; fi
+            $DOCKER compose up -d --build
+            $DOCKER image prune -f
